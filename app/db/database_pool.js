@@ -4,6 +4,7 @@
  */
 
 const { Pool } = require('pg');
+const { SocksProxyAgent } = require('socks-proxy-agent');
 require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
 
 class DatabasePool {
@@ -27,20 +28,22 @@ class DatabasePool {
       .replace(/([&?])(sslmode|channel_binding)=require&?/g, '$1')
       .replace(/[?&]$/, '');
 
+    // Прокси SOCKS5
+    const proxyUrl = 'socks5h://hFY2hZ:0rWZha@45.137.42.44:8000';
+    const agent = new SocksProxyAgent(proxyUrl);
+
     this.pool = new Pool({
       connectionString,
       ssl: { rejectUnauthorized: false },
-      
-      // Увеличенные таймауты для стабильности
       max: 20, // больше соединений в пуле
       idleTimeoutMillis: 60000, // 1 минута для idle соединений
       connectionTimeoutMillis: 10000, // 10 секунд на подключение
       acquireTimeoutMillis: 15000, // 15 секунд на получение соединения из пула
-      
-      // Дополнительные настройки для стабильности
       keepAlive: true,
       keepAliveInitialDelayMillis: 10000,
-      allowExitOnIdle: false
+      allowExitOnIdle: false,
+      // ВАЖНО: agent работает только с node-postgres >=8.7.0
+      connection: { stream: agent }
     });
 
     this.setupEventHandlers();
