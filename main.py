@@ -65,21 +65,52 @@ client = TelegramClient(
     timeout=20
 )
 
+# --- Глобальный буфер для фото по chat_id ---
+photo_buffer = {}
+
 @client.on(events.NewMessage(chats=SOURCE_CHANNELS))
 async def new_post_handler(event):
-    """Обрабатывает новые посты из каналов-доноров."""
+    """Обрабатывает новые посты из каналов-доноров с буферизацией фото."""
     source_channel_username = event.chat.username
     source_channel_url = f"https://t.me/{source_channel_username}"
-    print(f"✅ Получен новый пост из {source_channel_url}. Начинаю обработку...")
+    chat_id = event.chat_id
     try:
-        announcement = await convert_telethon_message_to_announcement(event.message)
-        if announcement:
+        # Если пришло фото — добавляем в буфер
+        if event.photo:
+            photo_path = await event.download_media(file=f"downloads/photo_{event.id}.jpg")
+            photo_buffer.setdefault(chat_id, []).append(photo_path)
+            print(f"Фото добавлено в буфер для чата {chat_id}: {photo_path}")
+        # Если пришёл текст — отправляем фото+текст, если есть фото в буфере
+        elif event.text and chat_id in photo_buffer and photo_buffer[chat_id]:
+            announcement = {
+                'id': event.id,
+                'text': event.text,
+                'photos': photo_buffer[chat_id],
+                'temp_dir': None
+            }
             await process_single_announcement(
                 ann=announcement,
                 perplexity_processor=perplexity_processor,
-                source_channel=source_channel_url, # Передаем конкретный канал
+                source_channel=source_channel_url,
                 markup_percentage=MARKUP_PERCENTAGE
             )
+            print(f"Отправлен пост с {len(photo_buffer[chat_id])} фото и текстом для чата {chat_id}")
+            photo_buffer[chat_id] = []  # очищаем буфер
+        # Если просто текст — можно обработать как отдельный пост без фото (по желанию)
+        elif event.text:
+            announcement = {
+                'id': event.id,
+                'text': event.text,
+                'photos': [],
+                'temp_dir': None
+            }
+            await process_single_announcement(
+                ann=announcement,
+                perplexity_processor=perplexity_processor,
+                source_channel=source_channel_url,
+                markup_percentage=MARKUP_PERCENTAGE
+            )
+            print(f"Отправлен пост только с текстом для чата {chat_id}")
     except Exception as e:
         print(f"❌ Ошибка при обработке нового поста {event.message.id} из канала {source_channel_url}: {e}")
 
